@@ -1,4 +1,4 @@
-MXL Sigma (Unofficial) Lag Test Tool
+MXL Sigma (Unofficial) Lag Test Tool\n
 I made a small tool to know which GS is the least laggy for me to play, this test every GS avaliable at the moment and writes a report so you can choose the best for you.
 
 Usage:
