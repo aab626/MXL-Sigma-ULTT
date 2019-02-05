@@ -19,4 +19,4 @@ GS 6 Almost 100% of the time doesn't respond to pings.
 With tries set to 1, the program will not be able to calculate a Standard Deviation (or average), so its not recommended for other than testing purposes.
 <br>
 I'm open to suggestions and feedback, please post on topic, PM me or find me on Discord: Drizak#2555.<br>
-More info: <a href=https://forum.median-xl.com/viewtopic.php?f=4&t=24270>MXL Sigma Forums</a>
+More info: <a href="https://forum.median-xl.com/viewtopic.php?f=4&t=24270">MXL Sigma Forums</a>
