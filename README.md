@@ -12,7 +12,9 @@ Usage:
 </ol>
 
 <br>
-<u>Downloads</u>: <a href="https://github.com/drizak/MXL-Sigma-ULTT/releases">Get latest release</a>.
+<u>Downloads</u>: <a href="https://github.com/drizak/MXL-Sigma-ULTT/releases">Get latest release</a>.<br>
+<br>
+
 <u>Notes</ul>:<br>
 Only works on Windows.
 GS 6 Almost 100% of the time doesn't respond to pings.
