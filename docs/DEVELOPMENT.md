@@ -4,7 +4,7 @@ This file is the project's memory. It explains how to work on MXL-Sigma-ULTT wit
 
 ## What this project is
 
-A small CLI tool for the Median XL Sigma community. It downloads the game server list, lets the user filter servers by country code or continent keyword, pings each server, and prints a latency report (min, max, avg, stddev, plus a top five). v2 is a rewrite of the original Python 2 `MXLLagtest.py`, which still sits in the repo root as a behavioral reference and gets deleted once v2 ships. Don't try to run or lint that file; it's Python 2 and ruff is configured to ignore it.
+A small CLI tool for the Median XL Sigma community. It downloads the game server list, lets the user filter servers by country code or continent keyword, pings each server, and prints a latency report (min, max, avg, stddev, plus a top five). v2 is a rewrite of the original Python 2 `MXLLagtest.py`, which served as the behavioral reference until the port was complete and has since been deleted from the repo.
 
 ## Toolchain
 
@@ -100,6 +100,23 @@ PyInstaller's work and spec files live inside `build/` (gitignored) so nothing e
 
 Actions are pinned to exact versions instead of floating major tags. setup-uv stopped publishing major tags over supply-chain concerns; applying the same habit to the rest costs nothing.
 
+## Phase 5 notes: shipping
+
+The README was rewritten for v2: cross-platform instead of Windows-only, terminal report instead of output.txt, plus the things a new user can't guess — the SmartScreen and Gatekeeper warnings for unsigned binaries, the Linux ping-socket sysctl, and the GS 6 / tries=1 quirks carried over from the old README.
+
+One incident worth keeping on record: the first README draft quoted the real server list URL in the build-from-source section, and the phase 1 leak guard test caught it before any commit. The README now explains how to get the URL without printing it. That test earning its first catch is the best argument for keeping it.
+
+The license situation is stated in the README: this repo is MIT, icmplib is LGPL-3.0 and stays a separately linked library. Since the source repo is public and icmplib is unmodified, that satisfies the license without extra ceremony.
+
+`MXLLagtest.py` is deleted and the ruff exclude for it (a Python 2 file ruff couldn't parse) went with it.
+
+Releasing, end to end, for the maintainer:
+
+1. Make sure the `GS_LIST_URL` secret exists in the repo settings (Actions → Secrets and variables).
+2. Commit, then tag `v2.0.0` and push the tag.
+3. GitHub Actions builds the three binaries and attaches them to the release; check the run is green.
+4. Spot-check each binary on its own OS. First runs will trip SmartScreen (Windows) or Gatekeeper (macOS); the README tells users what to click through.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.
@@ -109,4 +126,4 @@ Rewrite phases, in order. Each appends to this file when it finishes.
 2. Pinger: sequential pings, failure handling, privilege fallback. **done**
 3. Terminal output and CLI driver. At this point v2 matches the old tool feature for feature. **done**
 4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions. **done**
-5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0.
+5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0. **done**
