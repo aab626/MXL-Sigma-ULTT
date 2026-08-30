@@ -49,13 +49,31 @@ Choices worth knowing before you touch this code:
 - Tests never touch the network (the fetch test reads through a `file://` URL) and never use real server IPs. The fixture uses the RFC 5737 documentation ranges, which exist for exactly this purpose.
 - The leak guard test does two things unconditionally: verifies `.env` and `src/core/_baked.py` are actually gitignored. And when a real URL is available (from the `GS_LIST_URL` environment variable or a local `.env`), it scans every git-trackable file for that string and fails loudly. With no URL configured it skips, so fresh clones and contributor machines don't produce false failures. In CI the environment variable will come from the GitHub secret, making the scan real where it matters.
 
+## Phase 2 notes: the pinger
+
+`pinger.py` wraps icmplib and makes one call the code can't explain on its own: which ICMP mechanism to use. Machines differ. Windows and macOS allow unprivileged ICMP sockets, plain Linux doesn't (the kernel gates them behind the `net.ipv4.ping_group_range` sysctl), and a container often has neither that sysctl set nor a `ping` binary with file capabilities. So the pinger tries, in order: unprivileged ICMP, privileged ICMP (works as root), then the system `ping` binary, which most distros ship with the capability already attached. The first mechanism that answers wins and is cached for the rest of the run.
+
+The probe pings `127.0.0.1`, so detection never touches the network. One quirk we hit while testing: some iputils builds suppress the per-reply `time=` field, and even the whole summary line, when the payload is tiny. That made the probe fail on machines where real pings worked. Two fixes landed: the probe uses the same payload size as real pings, and the output parser learned the Linux/macOS `rtt min/avg/max/mdev` summary line as a second pattern.
+
+What keeps parity with the old tool:
+
+- Two-second timeout, 32-byte payload, one ping per attempt, attempts run one after another. Same numbers as before.
+- A failed attempt is recorded as `None`, not an error. Stats skip `None` values, which reproduces how the old tool's report behaved.
+- If nothing works at all, the tool raises `PingError` with the Linux sysctl fix in the message. Users who hit that need an OS config change, not a bug report.
+
+The system-ping fallback is the only mode that parses CLI output, so it parses tolerantly: strict English `time=` first, then the summary line, then a loose `[=<] N ms` pattern that handles localized output such as French `temps=23,5 ms`. The loose pattern is safe for one reason: we ping with a count of 1, so every "N ms" value in the output describes the same packet.
+
+`ping_server()` takes an optional `on_attempt` callback that fires after each try with the attempt number and result. The CLI driver in phase 3 uses it for live progress, and the future Textual UI will too.
+
+Tests keep the no-network rule from phase 1. They fake the icmplib and subprocess layers and stick to the RFC 5737 ranges; `resolve_mode()` is exercised but only ever pings loopback.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.
 
 0. Scaffolding: uv project, lint/test config, entry point. **done**
 1. Data layer: fetch, parse, region filtering, with tests. **done**
-2. Pinger: sequential pings, failure handling, privilege fallback.
+2. Pinger: sequential pings, failure handling, privilege fallback. **done**
 3. Terminal output and CLI driver. At this point v2 matches the old tool feature for feature.
 4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions.
 5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0.
