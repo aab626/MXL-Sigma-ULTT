@@ -1,0 +1,12 @@
+.env
+
+.venv/
+__pycache__/
+*.pyc
+
+build/
+dist/
+src/core/_baked.py
+
+.DS_Store
+Thumbs.db
