@@ -34,12 +34,27 @@ If the real URL or real IPs ever show up in a diff, stop and strip them before t
 - Servers get pinged one at a time for now, so the numbers stay comparable with the old tool. Parallel pinging is on the backlog for after the rewrite.
 - The UI is a plain interactive CLI. A Textual TUI comes later, designed from an existing Figma mock.
 
+## Phase 1 notes: the data layer
+
+The data layer lives in three modules. `config.py` resolves the server list URL: it checks the `GS_LIST_URL` environment variable (after loading `.env` if present), then falls back to the build-generated `_baked` module, and raises `ConfigError` with instructions when it finds neither. `gslist.py` fetches and parses the list and owns the region model. `stats.py` turns a list of ping times into min/max/avg/stddev.
+
+Choices worth knowing before you touch this code:
+
+- The country-to-region table maps far more country codes than the server list currently uses. That's deliberate future-proofing: when a new server appears in, say, Poland or Thailand, it lands in the right region with no code change. Russia (and any transcontinental country) maps to two regions at once, so filtering by either continent picks it up.
+- A server whose country code isn't in the table is not an error. It forms an unsorted bucket: it still gets pinged like any other server, continent filters just don't match it. The CLI will print a warning listing these codes. `unknown_country_codes()` is the helper for that.
+- `gb` and `uk` are the same country as far as filtering goes. Users can type either regardless of what the data file uses.
+- Filter validation accepts a token if it's a country code observed in the fetched data, a code in the built-in table, or a region keyword. The old tool rejected codes with no current servers; v2 accepts them and reports zero matches instead, which is friendlier when the list changes.
+- Region keywords are lowercase continent names without underscores (`northamerica`, `europe`, ...), matching the old tool's vocabulary. Matching is case-insensitive now; it wasn't before.
+- StdDev uses the true mean (`statistics.pstdev`). The old tool centered its stddev on the already-rounded average, a small quirk not worth reproducing; differences show up in the hundredths, and output keeps two decimals either way.
+- Tests never touch the network (the fetch test reads through a `file://` URL) and never use real server IPs. The fixture uses the RFC 5737 documentation ranges, which exist for exactly this purpose.
+- The leak guard test does two things unconditionally: verifies `.env` and `src/core/_baked.py` are actually gitignored. And when a real URL is available (from the `GS_LIST_URL` environment variable or a local `.env`), it scans every git-trackable file for that string and fails loudly. With no URL configured it skips, so fresh clones and contributor machines don't produce false failures. In CI the environment variable will come from the GitHub secret, making the scan real where it matters.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.
 
 0. Scaffolding: uv project, lint/test config, entry point. **done**
-1. Data layer: fetch, parse, region filtering, with tests.
+1. Data layer: fetch, parse, region filtering, with tests. **done**
 2. Pinger: sequential pings, failure handling, privilege fallback.
 3. Terminal output and CLI driver. At this point v2 matches the old tool feature for feature.
 4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions.
