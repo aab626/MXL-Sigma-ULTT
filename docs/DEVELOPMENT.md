@@ -45,7 +45,7 @@ Choices worth knowing before you touch this code:
 - `gb` and `uk` are the same country as far as filtering goes. Users can type either regardless of what the data file uses.
 - Filter validation accepts a token if it's a country code observed in the fetched data, a code in the built-in table, or a region keyword. The old tool rejected codes with no current servers; v2 accepts them and reports zero matches instead, which is friendlier when the list changes.
 - Region keywords are lowercase continent names without underscores (`northamerica`, `europe`, ...), matching the old tool's vocabulary. Matching is case-insensitive now; it wasn't before.
-- StdDev uses the true mean (`statistics.pstdev`). The old tool centered its stddev on the already-rounded average, a small quirk not worth reproducing; differences show up in the hundredths, and output keeps two decimals either way.
+- StdDev uses the true mean (`statistics.pstdev`). The old tool centered its stddev on the already-rounded average, a small quirk not worth reproducing; differences show up in the hundredths, well below what the report prints.
 - Tests never touch the network (the fetch test reads through a `file://` URL) and never use real server IPs. The fixture uses the RFC 5737 documentation ranges, which exist for exactly this purpose.
 - The leak guard test does two things unconditionally: verifies `.env` and `src/core/_baked.py` are actually gitignored. And when a real URL is available (from the `GS_LIST_URL` environment variable or a local `.env`), it scans every git-trackable file for that string and fails loudly. With no URL configured it skips, so fresh clones and contributor machines don't produce false failures. In CI the environment variable will come from the GitHub secret, making the scan real where it matters.
 
@@ -63,9 +63,29 @@ What keeps parity with the old tool:
 
 The system-ping fallback is the only mode that parses CLI output, so it parses tolerantly: strict English `time=` first, then the summary line, then a loose `[=<] N ms` pattern that handles localized output such as French `temps=23,5 ms`. The loose pattern is safe for one reason: we ping with a count of 1, so every "N ms" value in the output describes the same packet.
 
-`ping_server()` takes an optional `on_attempt` callback that fires after each try with the attempt number and result. The CLI driver in phase 3 uses it for live progress, and the future Textual UI will too.
+`ping_server()` takes an optional `on_attempt` callback that fires after each try with the attempt number and result. The CLI driver doesn't use it (the old tool printed nothing between "Pinging:" lines either); the future Textual UI will.
 
 Tests keep the no-network rule from phase 1. They fake the icmplib and subprocess layers and stick to the RFC 5737 ranges; `resolve_mode()` is exercised but only ever pings loopback.
+
+## Phase 3 notes: the report and the driver
+
+`output.py` is pure string work: `collect()` pairs a server with its raw ping list and folds in the stats, `render_report()` turns a list of results into the report text. Nothing in the module prints, so tests compare strings instead of scraping stdout. The driver in `__main__.py` owns every `input()` and `print()`.
+
+The prompt order looks odd but is faithful to the old tool: it asks for tries before fetching the server list. Kept as is.
+
+Where v2 deliberately parts ways with the old output:
+
+- The old tool threw away a server's whole measurement if a single ping failed. v2 still keeps failures out of the stats, but computes from the replies that did land, and only marks a server SKIPPED when nothing came back at all. Partial loss shows up as "(n/m replies lost)" on the row.
+- Numbers print with one decimal instead of the old rounded integers.
+- Rows with StdDev over 10 get an explicit "unstable" tag. The old tool only explained that rule in the header text, which is kept.
+- Filter input accepts commas as separators, not just spaces.
+- The report prints which ping mechanism was detected. When someone pastes output into a bug report, that line answers the first question anyone asks.
+
+Kept from the old tool on purpose: the banner, the "Press ENTER to exit." pause, and the overall wording of the flow. The pause exists because a double-clicked Windows exe closes its console the instant the process exits; without it users would never see the report. The version line comes from installed package metadata and falls back to "dev" when the project isn't installed.
+
+Scripted runs: EOF at any prompt aborts with exit code 130 ("Aborted."), but the final pause treats EOF as "carry on", so piping input into the tool exits cleanly instead of hanging.
+
+Tests stay offline: report rendering is checked against fake servers on RFC 5737 addresses, and the two input helpers (`_parse_tries`, `_parse_tokens`) are tested directly.
 
 ## The plan and where it stands
 
@@ -74,6 +94,6 @@ Rewrite phases, in order. Each appends to this file when it finishes.
 0. Scaffolding: uv project, lint/test config, entry point. **done**
 1. Data layer: fetch, parse, region filtering, with tests. **done**
 2. Pinger: sequential pings, failure handling, privilege fallback. **done**
-3. Terminal output and CLI driver. At this point v2 matches the old tool feature for feature.
+3. Terminal output and CLI driver. At this point v2 matches the old tool feature for feature. **done**
 4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions.
 5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0.
