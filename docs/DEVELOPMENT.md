@@ -87,6 +87,19 @@ Scripted runs: EOF at any prompt aborts with exit code 130 ("Aborted."), but the
 
 Tests stay offline: report rendering is checked against fake servers on RFC 5737 addresses, and the two input helpers (`_parse_tries`, `_parse_tokens`) are tested directly.
 
+## Phase 4 notes: building and releasing
+
+`scripts/build.py` is the one command behind a release binary: it bakes the URL and runs PyInstaller. Two choices in it that the code doesn't spell out:
+
+- The URL for baking comes from the environment or `.env`, never from a previous `_baked.py`. Reading back the old baked module would let a stale URL sneak into a fresh build.
+- After building, the script smoke-tests the binary by running it with stdin closed. The driver then aborts at the first prompt with exit code 130 after printing the banner, and the script checks for exactly that. It proves the bundle starts and the entry point is wired up, without pinging anyone. `--no-smoke` skips it.
+
+PyInstaller's work and spec files live inside `build/` (gitignored) so nothing extra lands in the repo root. A local build produced a 21 MiB one-file binary on Linux; the other platforms ride on the same script.
+
+`.github/workflows/release.yml` triggers on `v*` tags only. The maintainer must add the `GS_LIST_URL` secret in the repo settings before the first tag push; if it's missing, the workflow stops before building. That explicit check exists because the leak guard test would otherwise quietly skip instead of scan. Each matrix leg (Windows, Linux, macOS) runs the full test suite, so the leak guard scan is a real one on CI, then builds and uploads the binary named `mxl-sigma-ultt-<tag>-<platform>`. A second job collects all three and attaches them to the GitHub release. That split means a broken platform can't produce a half release: the release job only runs when every leg passed.
+
+Actions are pinned to exact versions instead of floating major tags. setup-uv stopped publishing major tags over supply-chain concerns; applying the same habit to the rest costs nothing.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.
@@ -95,5 +108,5 @@ Rewrite phases, in order. Each appends to this file when it finishes.
 1. Data layer: fetch, parse, region filtering, with tests. **done**
 2. Pinger: sequential pings, failure handling, privilege fallback. **done**
 3. Terminal output and CLI driver. At this point v2 matches the old tool feature for feature. **done**
-4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions.
+4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions. **done**
 5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0.
