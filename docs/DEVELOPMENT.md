@@ -139,6 +139,20 @@ The driver reads the pool size from the `MXL_PING_CONCURRENCY` environment varia
 
 Measured on the same machine, same network, 54 servers with 4 tries each: 52.0 seconds sequential, 9.9 seconds parallel. Per-server results matched between runs within normal jitter, so the speedup did not cost accuracy.
 
+## Phase A notes: the GUI shell
+
+The desktop app is PySide6 (Qt). The Figma design was a web page, so this is an adaptation rather than a port: colors, type and layout carry over, but the scroll-page becomes a fixed 576x700 window with the table doing the internal scrolling. `src/gui` sits beside `src/core` and imports it; `core` still knows nothing about any front end.
+
+Things that are easy to lose and are written down here:
+
+- The design blends the orange accent at 10% and 20% over dark surfaces. Qt stylesheets do not blend rgba() backgrounds reliably across platforms, so `theme.py` pre-blends them into the `ACCENT_10` / `ACCENT_20` hex constants. If you change the accent, re-blend those two by hand.
+- The banner is painted in `paintEvent`, not an image. The photo was dropped on purpose; there are no image assets and none planned. Want one back? It is a pixmap draw away.
+- Fonts are the only bundled assets: variable TTFs for DM Sans and JetBrains Mono from the google/fonts repo, each with its OFL license text next to it. They load through QFontDatabase at startup and the stylesheet references them by family name. Removing them will not error, it will silently fall back to system fonts, and the mono columns stop lining up.
+- The region chips include Africa and Unsorted. Phase A shows all of them unconditionally; later phases drive Unsorted's visibility from the fetched list (only when servers with unknown country codes exist).
+- Table semantics match the CLI report: ERR means every try failed, "(n/m lost)" marks partial loss, StdDev over 10 gets the warning color plus an "unstable" tag in the top 5, and averages color at <80 green, <150 amber, otherwise red.
+- Everything on screen in this phase is fake. `_ROWS` is an invented finished scan, including a bogus "GS9 · Nowhere" ERR row; no real server names or addresses live in the repo.
+- Visual checks are headless: run with `QT_QPA_PLATFORM=offscreen`, build the window, save `grab()` to a PNG and look at it. The pytest file asserts structure and wiring, never pixels.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.
@@ -150,3 +164,4 @@ Rewrite phases, in order. Each appends to this file when it finishes.
 4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions. **done**
 5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0. **done**
 6. Post-release: parallel pinging with configurable concurrency. **done**
+7. GUI (PySide6) from the Figma design: A shell and theme, B real scanning, C build, CI and release. **A done**
