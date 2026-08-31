@@ -1,0 +1,80 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            ext: .exe
+          - os: ubuntu-latest
+            platform: linux
+            ext: ""
+          - os: macos-latest
+            platform: macos
+            ext: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      GS_LIST_URL: ${{ secrets.GS_LIST_URL }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Require the URL secret
+        shell: bash
+        run: |
+          if [ -z "$GS_LIST_URL" ]; then
+            echo "The GS_LIST_URL repo secret is not set; refusing to build a binary without it." >&2
+            exit 1
+          fi
+
+      - name: Test (includes the leak guard scan)
+        run: uv run pytest
+
+      - name: Build binary
+        run: uv run python scripts/build.py
+
+      - name: Rename artifact for release
+        shell: bash
+        run: cp "dist/mxl-sigma-ultt${{ matrix.ext }}" "dist/mxl-sigma-ultt-${{ github.ref_name }}-${{ matrix.platform }}${{ matrix.ext }}"
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: bin-${{ matrix.platform }}
+          path: dist/mxl-sigma-ultt-*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: bin-*
+          merge-multiple: true
+          path: dist
+
+      - name: Attach binaries to the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/mxl-sigma-ultt-*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
