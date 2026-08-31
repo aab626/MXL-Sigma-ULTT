@@ -7,11 +7,8 @@ Top 5 block appears once a scan completes. Fetch and configuration
 errors surface in an inline banner above the table.
 """
 
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as package_version
-
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -31,10 +28,12 @@ from core.gslist import GameServer, Region
 from core.output import ServerResult, collect
 from core.pinger import current_mode
 from gui.banner import BannerWidget
+from gui.resources import asset_path
 from gui.theme import (
     ACCENT,
     ACCENT_10,
     BAD,
+    BORDER,
     DIM,
     FONT_MONO,
     GOOD,
@@ -73,24 +72,68 @@ def _item(text: str, color: str, font: QFont, align: Qt.AlignmentFlag) -> QTable
     return it
 
 
+_PING_CYCLE_MS = 1400
+_PING_TICK_MS = 16
+_BAR_SEGMENT = 0.35
+
+
+class _PingBar(QWidget):
+    """Slim indeterminate bar in a row's value columns while that GS is pinged.
+
+    All bars share one animation clock (MainWindow._ping_tick); each row is
+    staggered so the sweeps don't move in lockstep.
+    """
+
+    def __init__(self, stagger: float) -> None:
+        super().__init__()
+        self._stagger = stagger
+        self._phase = 0.0
+
+    def set_phase(self, phase: float) -> None:
+        self._phase = phase
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        w, h = self.width(), self.height()
+        bar_h = 4.0
+        y = (h - bar_h) / 2
+        p.setBrush(QColor(BORDER))
+        p.drawRoundedRect(QRectF(6, y, w - 12, bar_h), 2, 2)
+        seg_w = (w - 12) * _BAR_SEGMENT
+        t = (self._phase + self._stagger) % 1.0
+        x = 6 + t * (w - 12 + seg_w) - seg_w
+        p.setBrush(QColor(ACCENT))
+        p.drawRoundedRect(QRectF(x, y, seg_w, bar_h), 2, 2)
+        p.end()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("MXL Sigma — Lag Test Tool")
+        self.setWindowTitle("Median XL - Lag Test Tool")
+        icon_path = asset_path("icon.png")
+        if icon_path is not None:
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         self._worker: ScanWorker | None = None
         self._servers: list[GameServer] = []
         self._results: list[ServerResult | None] = []
         self._tries = DEFAULT_TRIES
         self._top5_rows: QWidget | None = None
+        self._ping_bars: dict[int, _PingBar] = {}
+        self._ping_phase = 0.0
+        self._ping_clock = QTimer(self)
+        self._ping_clock.setInterval(_PING_TICK_MS)
+        self._ping_clock.timeout.connect(self._tick_ping_bars)
 
         root = QWidget(objectName="root")
         outer = QVBoxLayout(root)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        banner = BannerWidget()
-        banner.set_version(self._app_version())
-        outer.addWidget(banner)
+        outer.addWidget(BannerWidget())
 
         body = QWidget(objectName="body")
         lay = QVBoxLayout(body)
@@ -141,7 +184,18 @@ class MainWindow(QMainWindow):
         self._tries_slider.valueChanged.connect(
             lambda v: self._tries_value.setText(str(v))
         )
-        return self._wrap(row)
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        lay.addWidget(
+            QLabel(
+                "Number of tries to measure latency to each GS",
+                objectName="triesHint",
+            )
+        )
+        lay.addLayout(row)
+        return box
 
     # -- chips --------------------------------------------------------------
 
@@ -181,7 +235,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 2, 0, 0)
         lay.setSpacing(5)
 
-        heading = QLabel("TOP 5 — BEST SERVERS FOR YOU", objectName="top5Heading")
+        heading = QLabel("TOP 5 GS [least latency]", objectName="top5Heading")
         font = heading.font()
         font.setPixelSize(9)
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.1)
@@ -275,6 +329,9 @@ class MainWindow(QMainWindow):
         self._tries = self._tries_slider.value()
 
         self._set_busy(True)
+        for row_index in list(self._ping_bars):
+            self._dispose_bar(row_index)
+        self._ping_clock.stop()
         self._error.hide()
         self._top5.hide()
         self._table.setRowCount(0)
@@ -315,11 +372,14 @@ class MainWindow(QMainWindow):
         self._fill_pinging_row(index)
 
     def _on_server_done(self, index: int, pings: list[float | None]) -> None:
+        self._clear_ping_row(index)
         result = collect(self._servers[index], pings)
         self._results[index] = result
         self._fill_result_row(index, result, None)
 
     def _on_scan_done(self, ping_lists: list[list[float | None]], tries: int) -> None:
+        for row_index in list(self._ping_bars):
+            self._clear_ping_row(row_index)
         results = [
             collect(server, pings)
             for server, pings in zip(self._servers, ping_lists, strict=True)
@@ -346,6 +406,10 @@ class MainWindow(QMainWindow):
         self._set_busy(False)
 
     def _on_scan_aborted(self, message: str) -> None:
+        for row_index in list(self._ping_bars):
+            self._clear_ping_row(row_index)
+            if self._results[row_index] is None:
+                self._fill_pending_row(row_index)
         self._error.setText(message)
         self._error.show()
         self._footer_right.setText("Ready.")
@@ -375,11 +439,32 @@ class MainWindow(QMainWindow):
 
     def _fill_pinging_row(self, row_index: int) -> None:
         for col in (2, 3, 4, 5):
-            self._table.setItem(
-                row_index,
-                col,
-                _item("…", DIM, _mono(11), Qt.AlignmentFlag.AlignRight),
-            )
+            self._table.takeItem(row_index, col)
+        self._table.setSpan(row_index, 2, 1, 4)
+        bar = _PingBar(stagger=(row_index * 0.11) % 1.0)
+        self._table.setCellWidget(row_index, 2, bar)
+        self._ping_bars[row_index] = bar
+        if not self._ping_clock.isActive():
+            self._ping_clock.start()
+
+    def _dispose_bar(self, row_index: int) -> None:
+        bar = self._ping_bars.pop(row_index, None)
+        if bar is not None:
+            self._table.removeCellWidget(row_index, 2)
+            bar.hide()
+            bar.setParent(None)
+            bar.deleteLater()
+
+    def _clear_ping_row(self, row_index: int) -> None:
+        self._dispose_bar(row_index)
+        self._table.setSpan(row_index, 2, 1, 1)
+        if not self._ping_bars:
+            self._ping_clock.stop()
+
+    def _tick_ping_bars(self) -> None:
+        self._ping_phase = (self._ping_phase + _PING_TICK_MS / _PING_CYCLE_MS) % 1.0
+        for bar in self._ping_bars.values():
+            bar.set_phase(self._ping_phase)
 
     def _fill_result_row(
         self, row_index: int, result: ServerResult, rank: int | None
@@ -447,13 +532,6 @@ class MainWindow(QMainWindow):
         self._top5_rows = rows_widget
 
     # -- misc ----------------------------------------------------------------------
-
-    @staticmethod
-    def _app_version() -> str:
-        try:
-            return package_version("mxl-sigma-ultt")
-        except PackageNotFoundError:
-            return "dev"
 
     @staticmethod
     def _wrap(layout: QHBoxLayout) -> QWidget:

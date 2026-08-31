@@ -1,6 +1,6 @@
 [project]
 name = "mxl-sigma-ultt"
-version = "2.2.0"
+version = "2.3.0"
 description = "Server latency tester for Median XL Sigma"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,6 +23,7 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "pyinstaller>=6.10",
+    "pillow>=10.0",
 ]
 gui = [
     "PySide6-Essentials>=6.8",

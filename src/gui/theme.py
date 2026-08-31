@@ -1,7 +1,8 @@
 """Theme constants and the application stylesheet.
 
 Colors and typography mirror the Figma design: a dark Diablo-red card with an
-orange accent, DM Sans for prose, JetBrains Mono for numbers and controls.
+orange accent, DM Sans for prose, JetBrains Mono for numbers and controls,
+Diablo (fan font) for the banner title.
 """
 
 BG = "#110606"
@@ -12,6 +13,7 @@ MUTED = "#5c2a2a"
 DIM = "#7a3c3c"
 TEXT = "#d4b4b4"
 BRIGHT = "#f0dada"
+HINT = "#a05858"
 ACCENT = "#e8955a"
 GOOD = "#4ade80"
 OK = "#fbbf24"
@@ -29,6 +31,7 @@ ERROR_BORDER = "#8a2626"
 
 FONT_SANS = "DM Sans"
 FONT_MONO = "JetBrains Mono"
+FONT_DISPLAY = "Diablo"
 
 
 def ping_color(avg_ms: float) -> str:
@@ -56,13 +59,17 @@ QLabel {{
 
 /* --- controls row --------------------------------------------------- */
 QLabel#triesLabel {{
-    color: {DIM};
+    color: {ACCENT};
 }}
 QLabel#triesValue {{
     color: {ACCENT};
     font-family: "{FONT_MONO}";
     font-size: 11px;
     font-weight: 600;
+}}
+QLabel#triesHint {{
+    color: {HINT};
+    font-size: 9px;
 }}
 QSlider::groove:horizontal {{
     height: 4px;

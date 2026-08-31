@@ -45,36 +45,76 @@ def bake(url: str) -> None:
     print(f"Baked server list URL into {BAKED.relative_to(REPO_ROOT)}")
 
 
-def build() -> Path:
+def make_icon() -> Path | None:
+    """Generate the platform icon from assets/icon.png (needs Pillow; macOS needs iconutil).
+
+    Windows builds get a .ico (16-256), macOS an .icns via ``iconutil``,
+    Linux nothing (the window icon is set at runtime from the bundled PNG).
+    """
+    src = ASSETS / "icon.png"
+    if not src.is_file():
+        print("No assets/icon.png found; building without a file icon.")
+        return None
+    out = REPO_ROOT / "build" / "icon"
+    out.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        from PIL import Image
+
+        ico = out / f"{NAME}.ico"
+        Image.open(src).save(
+            ico, sizes=[(16, 16), (32, 32), (48, 48), (128, 128), (256, 256)]
+        )
+        return ico
+    if sys.platform == "darwin":
+        from PIL import Image
+
+        iconset = out / f"{NAME}.iconset"
+        iconset.mkdir(exist_ok=True)
+        img = Image.open(src)
+        for base in (16, 32, 128):
+            img.resize((base, base), Image.LANCZOS).save(
+                iconset / f"icon_{base}x{base}.png"
+            )
+            img.resize((base * 2, base * 2), Image.LANCZOS).save(
+                iconset / f"icon_{base}x{base}@2x.png"
+            )
+        icns = out / f"{NAME}.icns"
+        subprocess.run(
+            ["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], check=True
+        )
+        return icns
+    return None
+
+
+def build(icon: Path | None) -> Path:
     suffix = ".exe" if os.name == "nt" else ""
     binary = DIST / (NAME + suffix)
     binary.unlink(missing_ok=True)
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            "--noconfirm",
-            "--clean",
-            "--onefile",
-            "--windowed",
-            "--name",
-            NAME,
-            "--distpath",
-            str(DIST),
-            "--workpath",
-            str(REPO_ROOT / "build"),
-            "--specpath",
-            str(REPO_ROOT / "build"),
-            "--paths",
-            str(REPO_ROOT / "src"),
-            "--add-data",
-            f"{ASSETS}{os.pathsep}gui/assets",
-            str(ENTRY),
-        ],
-        cwd=REPO_ROOT,
-        check=True,
-    )
+    args = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--onefile",
+        "--windowed",
+        "--name",
+        NAME,
+        "--distpath",
+        str(DIST),
+        "--workpath",
+        str(REPO_ROOT / "build"),
+        "--specpath",
+        str(REPO_ROOT / "build"),
+        "--paths",
+        str(REPO_ROOT / "src"),
+        "--add-data",
+        f"{ASSETS}{os.pathsep}gui/assets",
+    ]
+    if icon is not None:
+        args += ["--icon", str(icon)]
+    args.append(str(ENTRY))
+    subprocess.run(args, cwd=REPO_ROOT, check=True)
     return binary
 
 
@@ -110,7 +150,7 @@ def main() -> None:
     args = parser.parse_args()
 
     bake(resolve_url())
-    binary = build()
+    binary = build(make_icon())
     if not args.no_smoke:
         smoke(binary)
     size = binary.stat().st_size / (1024 * 1024)
