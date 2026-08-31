@@ -69,7 +69,7 @@ scripts/build.py     bakes URL + PyInstaller build + smoke test
 The agent prepares the release but does NOT touch git: no commits, no tags, no pushes. Division of labor:
 
 Agent does:
-1. Update `version` in `pyproject.toml` — the single source of truth (both frontends show it via `importlib.metadata`).
+1. Update `version` in `pyproject.toml` — the single source of truth (the terminal UI shows it via `importlib.metadata`).
 2. Run `uv sync` (or `uv lock`) so `uv.lock`'s own entry matches — the only other place the version exists.
 3. Run `uv run pytest` and `uv run ruff check .` before calling it done.
 

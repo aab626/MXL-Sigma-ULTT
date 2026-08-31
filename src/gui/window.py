@@ -7,9 +7,6 @@ Top 5 block appears once a scan completes. Fetch and configuration
 errors surface in an inline banner above the table.
 """
 
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as package_version
-
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
@@ -76,7 +73,7 @@ def _item(text: str, color: str, font: QFont, align: Qt.AlignmentFlag) -> QTable
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("MXL Sigma — Lag Test Tool")
+        self.setWindowTitle("Median XL Σ - Lag Test Tool")
 
         self._worker: ScanWorker | None = None
         self._servers: list[GameServer] = []
@@ -88,9 +85,7 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(root)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        banner = BannerWidget()
-        banner.set_version(self._app_version())
-        outer.addWidget(banner)
+        outer.addWidget(BannerWidget())
 
         body = QWidget(objectName="body")
         lay = QVBoxLayout(body)
@@ -447,13 +442,6 @@ class MainWindow(QMainWindow):
         self._top5_rows = rows_widget
 
     # -- misc ----------------------------------------------------------------------
-
-    @staticmethod
-    def _app_version() -> str:
-        try:
-            return package_version("mxl-sigma-ultt")
-        except PackageNotFoundError:
-            return "dev"
 
     @staticmethod
     def _wrap(layout: QHBoxLayout) -> QWidget:
