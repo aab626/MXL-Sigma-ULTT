@@ -1,7 +1,8 @@
 """Theme constants and the application stylesheet.
 
 Colors and typography mirror the Figma design: a dark Diablo-red card with an
-orange accent, DM Sans for prose, JetBrains Mono for numbers and controls.
+orange accent, DM Sans for prose, JetBrains Mono for numbers and controls,
+Diablo (fan font) for the banner title.
 """
 
 BG = "#110606"
@@ -29,6 +30,7 @@ ERROR_BORDER = "#8a2626"
 
 FONT_SANS = "DM Sans"
 FONT_MONO = "JetBrains Mono"
+FONT_DISPLAY = "Diablo"
 
 
 def ping_color(avg_ms: float) -> str:

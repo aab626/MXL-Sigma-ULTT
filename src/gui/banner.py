@@ -17,11 +17,11 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from gui.theme import ACCENT, BORDER, BRIGHT, DIM, FONT_MONO, FONT_SANS
+from gui.theme import ACCENT, BORDER, BRIGHT, DIM, FONT_DISPLAY, FONT_MONO
 
 _HEIGHT = 90
 _MARGIN = 16
-_TITLE = "Median XL Σ - Lag Test Tool"
+_TITLE = "Median XL - Lag Test Tool"
 _SUBTITLE = "by star626 - forum thread"
 _LINK_TEXT = "forum thread"
 _LINK_START = _SUBTITLE.index(_LINK_TEXT)
@@ -52,14 +52,13 @@ class BannerWidget(QWidget):
         glow.setColorAt(1.0, QColor(0, 0, 0, 0))
         p.fillRect(0, 0, w, h, glow)
 
-        title = QFont(FONT_SANS)
-        title.setPixelSize(13)
-        title.setBold(True)
+        title = QFont(FONT_DISPLAY)
+        title.setPixelSize(17)
         title.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.8)
         p.setFont(title)
         p.setPen(QColor(BRIGHT))
         p.drawText(
-            QRectF(_MARGIN, 32, w - _MARGIN * 2, 18),
+            QRectF(_MARGIN, 26, w - _MARGIN * 2, 26),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             _TITLE,
         )

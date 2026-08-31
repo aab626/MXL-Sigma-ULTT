@@ -73,7 +73,7 @@ def _item(text: str, color: str, font: QFont, align: Qt.AlignmentFlag) -> QTable
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Median XL Σ - Lag Test Tool")
+        self.setWindowTitle("Median XL - Lag Test Tool")
 
         self._worker: ScanWorker | None = None
         self._servers: list[GameServer] = []
