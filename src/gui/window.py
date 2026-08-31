@@ -180,7 +180,18 @@ class MainWindow(QMainWindow):
         self._tries_slider.valueChanged.connect(
             lambda v: self._tries_value.setText(str(v))
         )
-        return self._wrap(row)
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        lay.addWidget(
+            QLabel(
+                "Number of tries to measure latency to each GS",
+                objectName="triesHint",
+            )
+        )
+        lay.addLayout(row)
+        return box
 
     # -- chips --------------------------------------------------------------
 
@@ -220,7 +231,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 2, 0, 0)
         lay.setSpacing(5)
 
-        heading = QLabel("TOP 5 — BEST SERVERS FOR YOU", objectName="top5Heading")
+        heading = QLabel("TOP 5 GS [least latency]", objectName="top5Heading")
         font = heading.font()
         font.setPixelSize(9)
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.1)
@@ -314,7 +325,8 @@ class MainWindow(QMainWindow):
         self._tries = self._tries_slider.value()
 
         self._set_busy(True)
-        self._ping_bars.clear()
+        for row_index in list(self._ping_bars):
+            self._dispose_bar(row_index)
         self._ping_clock.stop()
         self._error.hide()
         self._top5.hide()
@@ -431,10 +443,17 @@ class MainWindow(QMainWindow):
         if not self._ping_clock.isActive():
             self._ping_clock.start()
 
-    def _clear_ping_row(self, row_index: int) -> None:
-        if self._ping_bars.pop(row_index, None) is not None:
+    def _dispose_bar(self, row_index: int) -> None:
+        bar = self._ping_bars.pop(row_index, None)
+        if bar is not None:
             self._table.removeCellWidget(row_index, 2)
-            self._table.setSpan(row_index, 2, 1, 1)
+            bar.hide()
+            bar.setParent(None)
+            bar.deleteLater()
+
+    def _clear_ping_row(self, row_index: int) -> None:
+        self._dispose_bar(row_index)
+        self._table.setSpan(row_index, 2, 1, 1)
         if not self._ping_bars:
             self._ping_clock.stop()
 

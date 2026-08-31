@@ -30,7 +30,7 @@ from gui.theme import ACCENT, BORDER, BRIGHT, FONT_DISPLAY, FONT_MONO, TEXT
 _HEIGHT = 90
 _MARGIN = 16
 _TITLE = "Median XL - Lag Test Tool"
-_SUBTITLE = "by star626 - forum thread"
+_SUBTITLE = "by star626 · forum thread"
 _LINK_TEXT = "forum thread"
 _LINK_START = _SUBTITLE.index(_LINK_TEXT)
 _FORUM_URL = "https://forum.median-xl.com/viewtopic.php?f=32&t=24270"
