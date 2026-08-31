@@ -11,7 +11,7 @@ Grab the latest binary from the [releases page](https://github.com/drizak/MXL-Si
 Since the binaries are not code-signed, your OS may complain the first time you run one:
 
 - **Windows**: SmartScreen will warn you ("Windows protected your PC"). Click *More info* → *Run anyway*.
-- **macOS**: Gatekeeper will refuse to open an unsigned binary. After downloading, run `xattr -d com.apple.quarantine <binary>` (or right-click → Open in Finder) to allow it.
+- **macOS**: Gatekeeper will refuse to open an unsigned binary. After downloading, run `xattr -d com.apple.quarantine <binary>`, or launch it once, dismiss the block dialog, then allow it under System Settings → Privacy & Security (Open Anyway). On recent macOS versions right-click → Open in Finder no longer works.
 - **Linux**: just `chmod +x` it if needed.
 
 ## Usage
@@ -22,6 +22,8 @@ Run the program and answer two prompts:
 2. **Filter** — a country code (`us`, `de`, ...) or a region keyword (`europe`, `asia`, `northamerica`, `southamerica`, `oceania`, `africa`). Leave blank to test everything. Servers from unknown countries are always tested and flagged.
 
 The report prints to the screen: min/max/avg/standard deviation per server, a Top 5, and an "unstable" tag for servers with a standard deviation above 10 ms. A server that never answers shows up as SKIPPED.
+
+Servers are pinged in parallel, 6 at a time by default. Set the `MXL_PING_CONCURRENCY` environment variable to change that (for example `MXL_PING_CONCURRENCY=1` gives you the old one-server-at-a-time behavior).
 
 Two things worth knowing:
 

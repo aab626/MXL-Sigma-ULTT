@@ -1,4 +1,6 @@
 import subprocess
+import threading
+import time
 
 import pytest
 from icmplib.exceptions import ICMPLibError, SocketPermissionError
@@ -223,3 +225,100 @@ def test_mode_is_cached(monkeypatch):
     assert pinger.resolve_mode() == MODE_ICMP_UNPRIVILEGED
     assert pinger.resolve_mode() == MODE_ICMP_UNPRIVILEGED
     assert len(calls) == 1
+
+
+def _servers(count):
+    return [
+        GameServer(
+            name=f"GS{index}",
+            label="Test [us]",
+            country_code="us",
+            ip=f"192.0.2.{index}",
+        )
+        for index in range(1, count + 1)
+    ]
+
+
+def test_ping_servers_preserves_order(monkeypatch):
+    def fake_ping(server, tries, timeout=2.0, payload_size=32):
+        return [float(server.name[2:])] * tries
+
+    monkeypatch.setattr(pinger, "ping_server", fake_ping)
+    servers = _servers(8)
+    results = pinger.ping_servers(servers, 2, concurrency=4)
+    assert [pings[0] for pings in results] == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+
+
+def test_ping_servers_respects_concurrency_cap(monkeypatch):
+    lock = threading.Lock()
+    state = {"current": 0, "peak": 0}
+
+    def fake_ping(server, tries, timeout=2.0, payload_size=32):
+        with lock:
+            state["current"] += 1
+            state["peak"] = max(state["peak"], state["current"])
+        time.sleep(0.05)
+        with lock:
+            state["current"] -= 1
+        return [1.0] * tries
+
+    monkeypatch.setattr(pinger, "ping_server", fake_ping)
+    pinger.ping_servers(_servers(8), 2, concurrency=3)
+    assert state["peak"] == 3
+
+
+def test_ping_servers_sequential_when_concurrency_one(monkeypatch):
+    lock = threading.Lock()
+    state = {"current": 0, "peak": 0}
+
+    def fake_ping(server, tries, timeout=2.0, payload_size=32):
+        with lock:
+            state["current"] += 1
+            state["peak"] = max(state["peak"], state["current"])
+        with lock:
+            state["current"] -= 1
+        return [1.0] * tries
+
+    monkeypatch.setattr(pinger, "ping_server", fake_ping)
+    pinger.ping_servers(_servers(4), 2, concurrency=1)
+    assert state["peak"] == 1
+
+
+def test_ping_servers_empty_list():
+    assert pinger.ping_servers([], 4) == []
+
+
+def test_ping_servers_worker_crash_becomes_failures(monkeypatch):
+    def crashing_ping(server, tries, timeout=2.0, payload_size=32):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(pinger, "ping_server", crashing_ping)
+    results = pinger.ping_servers(_servers(3), 4, concurrency=2)
+    assert results == [[None] * 4, [None] * 4, [None] * 4]
+
+
+def test_ping_servers_callbacks_fire_once_per_server(monkeypatch):
+    def fake_ping(server, tries, timeout=2.0, payload_size=32):
+        return [0.5] * tries
+
+    monkeypatch.setattr(pinger, "ping_server", fake_ping)
+    servers = _servers(5)
+    started: list[str] = []
+    done: list[tuple[str, list]] = []
+    pinger.ping_servers(
+        servers,
+        2,
+        concurrency=3,
+        on_server_start=lambda server: started.append(server.name),
+        on_server_done=lambda server, pings: done.append((server.name, pings)),
+    )
+    assert sorted(started) == sorted(server.name for server in servers)
+    assert sorted(name for name, _ in done) == sorted(server.name for server in servers)
+    assert all(pings == [0.5, 0.5] for _, pings in done)
+
+
+def test_ping_servers_validates_arguments(monkeypatch):
+    with pytest.raises(ValueError):
+        pinger.ping_servers(_servers(1), 0)
+    with pytest.raises(ValueError):
+        pinger.ping_servers(_servers(1), 4, concurrency=0)

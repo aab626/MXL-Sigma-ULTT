@@ -125,6 +125,20 @@ The fix is to stop relying on the OS and ship a certificate store with the app. 
 
 `_ssl_context` exists for this and only this. If certifi ever leaves the dependency list, the fetch will break on macOS first.
 
+## Post-release notes: parallel pinging
+
+The old tool pinged one server at a time, which is the main reason a full sweep took about a minute. Pings are I/O-bound, so the new `ping_servers` runs several servers at once on a thread pool. Threads were chosen over icmplib's asyncio API for one practical reason: the pinger has three backends, and the system-ping backend is built on subprocesses, which asyncio would not help anyway. One pool covers all three.
+
+A few details that are easy to get wrong and are handled here:
+
+- Results come back in the same order as the input servers, no matter who finishes first. Each worker writes to its own index.
+- The start and done callbacks fire from worker threads but go through a lock, so the driver can print from them without garbled lines.
+- A worker that dies unexpectedly is treated as a server that never answered (all attempts None) instead of taking down the whole run.
+
+The driver reads the pool size from the `MXL_PING_CONCURRENCY` environment variable, defaulting to 6 and clamped to 16. `MXL_PING_CONCURRENCY=1` reproduces the old one-at-a-time behavior.
+
+Measured on the same machine, same network, 54 servers with 4 tries each: 52.0 seconds sequential, 9.9 seconds parallel. Per-server results matched between runs within normal jitter, so the speedup did not cost accuracy.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.
@@ -135,3 +149,4 @@ Rewrite phases, in order. Each appends to this file when it finishes.
 3. Terminal output and CLI driver. At this point v2 matches the old tool feature for feature. **done**
 4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions. **done**
 5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0. **done**
+6. Post-release: parallel pinging with configurable concurrency. **done**
