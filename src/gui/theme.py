@@ -23,6 +23,10 @@ BAD = "#f87171"
 ACCENT_20 = "#45271c"
 ACCENT_10 = "#301a14"
 
+# Pre-blended error-banner palette (bad tone over BG).
+ERROR_BG = "#2a1111"
+ERROR_BORDER = "#8a2626"
+
 FONT_SANS = "DM Sans"
 FONT_MONO = "JetBrains Mono"
 
@@ -79,6 +83,15 @@ QSlider::handle:horizontal {{
 QSlider::handle:horizontal:hover {{
     background: {BRIGHT};
 }}
+QSlider::groove:horizontal:disabled {{
+    background: {BORDER};
+}}
+QSlider::sub-page:horizontal:disabled {{
+    background: {MUTED};
+}}
+QSlider::handle:horizontal:disabled {{
+    background: {MUTED};
+}}
 QPushButton#startBtn {{
     background: transparent;
     border: 1px solid {ACCENT};
@@ -118,6 +131,16 @@ QPushButton[chip="true"]:checked {{
     border-color: {ACCENT};
     background: {ACCENT_20};
     color: {ACCENT};
+}}
+
+/* --- error banner ----------------------------------------------------- */
+QLabel#errorBanner {{
+    color: {BAD};
+    background: {ERROR_BG};
+    border: 1px solid {ERROR_BORDER};
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 10px;
 }}
 
 /* --- top 5 ------------------------------------------------------------ */

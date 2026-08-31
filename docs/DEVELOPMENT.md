@@ -153,6 +153,21 @@ Things that are easy to lose and are written down here:
 - Everything on screen in this phase is fake. `_ROWS` is an invented finished scan, including a bogus "GS9 · Nowhere" ERR row; no real server names or addresses live in the repo.
 - Visual checks are headless: run with `QT_QPA_PLATFORM=offscreen`, build the window, save `grab()` to a PNG and look at it. The pytest file asserts structure and wiring, never pixels.
 
+## Phase B notes: the GUI goes live
+
+The start button is wired to `ScanWorker`, a QThread that runs one whole scan: fetch, filter, mode detection, parallel ping. Progress travels over Qt signals, which Qt delivers on the UI thread automatically, so the window never touches a lock and never freezes.
+
+Things that are easy to lose and are written down here:
+
+- One worker per scan. A second click while one runs is ignored; controls (slider, chips, button) are disabled for the duration and restored on any ending, success or failure.
+- Closing the window mid-scan cancels it instead of hanging. The pinger takes a stop event: servers already being pinged finish their current attempts, servers that never started are reported as all-failed, and the done callbacks still fire for those, so the table always ends up complete (no rows stuck on "…"). The window waits up to 20 seconds on close, which covers the worst in-flight server.
+- `MXL_PING_CONCURRENCY` now lives in the pinger as `resolve_concurrency()`, and the CLI delegates to it. One knob, both front ends, same clamping.
+- Region chips filter through the same core token filter the CLI uses; a chip stores its region value ("asia" and friends). Unsorted covers servers with an empty country code plus unrecognized ones, and the chip only appears when the fetched list actually has such servers.
+- ERR rows suppress the "(n/m lost)" note: every try failed there, so the note would say nothing. The top 5 stays hidden until a scan finishes AND at least one server answered; a scan where everything failed shows just the table.
+- The banner subtitle gets its version from package metadata, falling back to "dev" when the project is not installed (the same rule the CLI banner uses).
+- Tests patch the names inside `gui.worker` (fetch, parse, mode, ping), so nothing touches the network. Window flow tests patch `ScanWorker.start` to call `run()` inline, which keeps signal delivery synchronous and avoids event-loop timing. The close test parks the fake pinger on an event and asserts the window's close path breaks it loose.
+- Verified headless, twice: against the sanitized fixture, where every address is unroutable and the whole table must go ERR, and against the real list (54 servers, 4 tries, about 11 seconds in the sandbox). A screenshot made one average look green on red cells, so cell colors were read back programmatically instead of trusted by eye.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.
@@ -164,4 +179,4 @@ Rewrite phases, in order. Each appends to this file when it finishes.
 4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions. **done**
 5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0. **done**
 6. Post-release: parallel pinging with configurable concurrency. **done**
-7. GUI (PySide6) from the Figma design: A shell and theme, B real scanning, C build, CI and release. **A done**
+7. GUI (PySide6) from the Figma design: A shell and theme, B real scanning, C build, CI and release. **A and B done**

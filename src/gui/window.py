@@ -1,10 +1,14 @@
-"""Main window, Phase A: static preview of the design with fake data.
+"""Main window.
 
-Everything renders exactly as a finished scan will look (values, ERR row,
-partial-loss note, top-5 highlighting) so the theme and layout can be checked
-against the Figma design. Real scanning arrives in Phase B; the start button
-and region chips are visible but intentionally inert.
+Layout mirrors the Figma design; the data comes from real scans. A
+ScanWorker runs off the UI thread and reports progress via signals, so
+rows fill in live (pending dashes, pinging dots, values or ERR) and the
+Top 5 block appears once a scan completes. Fetch and configuration
+errors surface in an inline banner above the table.
 """
+
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
@@ -23,7 +27,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.gslist import Region
+from core.gslist import GameServer, Region
+from core.output import ServerResult, collect
+from core.pinger import current_mode
 from gui.banner import BannerWidget
 from gui.theme import (
     ACCENT,
@@ -36,8 +42,11 @@ from gui.theme import (
     TEXT,
     ping_color,
 )
+from gui.worker import UNSORTED, ScanWorker
 
 DEFAULT_TRIES = 4
+_TOP_N = 5
+_STDDEV_WARN = 10.0
 
 _REGION_LABELS = {
     Region.NORTH_AMERICA: "N. America",
@@ -47,20 +56,6 @@ _REGION_LABELS = {
     Region.OCEANIA: "Oceania",
     Region.AFRICA: "Africa",
 }
-
-# name, label, avg, min, max, std, lost, all_failed, top_rank
-_FakeRow = tuple[str, str, float, float, float, float, int, bool, int | None]
-
-_ROWS: list[_FakeRow] = [
-    ("GS5", "Frankfurt", 24.7, 22.9, 30.1, 2.2, 0, False, 1),
-    ("GS28", "Sao Paulo", 59.0, 55.1, 64.8, 3.1, 0, False, 2),
-    ("GS2", "Moscow", 61.3, 58.0, 70.9, 4.0, 0, False, 3),
-    ("GS7", "Paris", 81.4, 76.2, 92.0, 5.5, 1, False, 4),
-    ("GS1", "Los Angeles", 96.5, 88.1, 130.2, 14.1, 0, False, 5),
-    ("GS12", "Singapore", 124.8, 110.0, 150.3, 12.9, 0, False, None),
-    ("GS18", "Sydney", 371.8, 352.4, 402.1, 18.2, 0, False, None),
-    ("GS9", "Nowhere", 0.0, 0.0, 0.0, 0.0, 0, True, None),
-]
 
 
 def _mono(px: int, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
@@ -83,11 +78,19 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MXL Sigma — Lag Test Tool")
 
+        self._worker: ScanWorker | None = None
+        self._servers: list[GameServer] = []
+        self._results: list[ServerResult | None] = []
+        self._tries = DEFAULT_TRIES
+        self._top5_rows: QWidget | None = None
+
         root = QWidget(objectName="root")
         outer = QVBoxLayout(root)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        outer.addWidget(BannerWidget())
+        banner = BannerWidget()
+        banner.set_version(self._app_version())
+        outer.addWidget(banner)
 
         body = QWidget(objectName="body")
         lay = QVBoxLayout(body)
@@ -95,7 +98,9 @@ class MainWindow(QMainWindow):
         lay.setSpacing(10)
         lay.addWidget(self._build_controls())
         lay.addWidget(self._build_chips())
-        self._top5 = self._build_top5()
+        lay.addWidget(self._build_error())
+        self._top5, self._top5_lay = self._build_top5()
+        self._top5.hide()
         lay.addWidget(self._top5)
         lay.addWidget(self._build_table(), stretch=1)
         lay.addWidget(self._build_footer())
@@ -103,6 +108,8 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(root)
         self.setFixedSize(576, 700)
+
+        self._start_btn.clicked.connect(self._start_scan)
 
     # -- controls ---------------------------------------------------------
 
@@ -144,21 +151,31 @@ class MainWindow(QMainWindow):
         self._chip_group = QButtonGroup(self)
         self._chip_group.setExclusive(True)
 
-        chips = [("All", None), *((lbl, reg) for reg, lbl in _REGION_LABELS.items())]
-        chips.append(("Unsorted", None))  # shown when unknown-CC servers exist
-        for i, (text, _region) in enumerate(chips):
+        chips: list[tuple[str, str | None]] = [("All", None)]
+        chips += [(label, region.value) for region, label in _REGION_LABELS.items()]
+        chips.append(("Unsorted", UNSORTED))  # shown when unknown-CC servers exist
+        for i, (text, region) in enumerate(chips):
             btn = QPushButton(text)
             btn.setProperty("chip", True)
             btn.setCheckable(True)
             btn.setChecked(i == 0)
+            btn.setProperty("region", region)
             self._chip_group.addButton(btn, i)
             row.addWidget(btn)
         row.addStretch(1)
         return self._wrap(row)
 
+    # -- error banner ---------------------------------------------------------
+
+    def _build_error(self) -> QLabel:
+        self._error = QLabel("", objectName="errorBanner")
+        self._error.setWordWrap(True)
+        self._error.hide()
+        return self._error
+
     # -- top 5 ---------------------------------------------------------------
 
-    def _build_top5(self) -> QWidget:
+    def _build_top5(self) -> tuple[QWidget, QVBoxLayout]:
         box = QWidget()
         lay = QVBoxLayout(box)
         lay.setContentsMargins(0, 2, 0, 0)
@@ -170,39 +187,35 @@ class MainWindow(QMainWindow):
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.1)
         heading.setFont(font)
         lay.addWidget(heading)
+        return box, lay
 
-        for r in sorted(
-            (r for r in _ROWS if r[8] is not None), key=lambda r: r[8]
-        ):
-            lay.addLayout(self._top5_row(r))
-        return box
-
-    def _top5_row(self, r: _FakeRow) -> QHBoxLayout:
-        name, label, avg, _mn, _mx, std, lost, failed, rank = r
+    def _top5_row(self, result: ServerResult, place: int) -> QHBoxLayout:
+        stats = result.stats
+        assert stats is not None  # top-5 rows are never skipped
         row = QHBoxLayout()
         row.setSpacing(8)
 
-        rank_lbl = QLabel(f"#{rank}", objectName="rankLabel")
+        rank_lbl = QLabel(f"#{place}", objectName="rankLabel")
         rank_lbl.setFixedWidth(20)
         row.addWidget(rank_lbl)
 
-        text = f"{name} · {label}"
-        if lost:
-            text += f" ({lost}/{DEFAULT_TRIES} lost)"
+        text = f"{result.server.name} · {result.server.label}"
+        if result.lost:
+            text += f" ({result.lost}/{len(result.pings)} lost)"
         row.addWidget(QLabel(text, objectName="serverLabel"), stretch=1)
 
-        if std > 10:
+        if stats.stddev > _STDDEV_WARN:
             row.addWidget(QLabel("unstable", objectName="tagLabel"))
 
-        avg_lbl = QLabel(f"{avg:.1f} ms", objectName="avgLabel")
-        avg_lbl.setStyleSheet(f"color: {ping_color(avg)};")
+        avg_lbl = QLabel(f"{stats.average:.1f} ms", objectName="avgLabel")
+        avg_lbl.setStyleSheet(f"color: {ping_color(stats.average)};")
         row.addWidget(avg_lbl)
         return row
 
     # -- table -----------------------------------------------------------------
 
     def _build_table(self) -> QTableWidget:
-        table = QTableWidget(len(_ROWS), 6)
+        table = QTableWidget(0, 6)
         table.setHorizontalHeaderLabels(["", "Server", "Avg", "Min", "Max", "StdDev"])
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
@@ -228,43 +241,6 @@ class MainWindow(QMainWindow):
             table.horizontalHeaderItem(col).setTextAlignment(
                 align | Qt.AlignmentFlag.AlignVCenter
             )
-
-        right = Qt.AlignmentFlag.AlignRight
-        center = Qt.AlignmentFlag.AlignCenter
-
-        for row_i, r in enumerate(_ROWS):
-            name, label, avg, mn, mx, std, lost, failed, rank = r
-            rank_col = _item(
-                f"#{rank}" if rank else "",
-                ACCENT,
-                _mono(10, QFont.Weight.DemiBold),
-                center,
-            )
-            server_text = f"{name} · {label}"
-            if lost:
-                server_text += f" ({lost}/{DEFAULT_TRIES} lost)"
-            server = _item(server_text, TEXT, _mono(11), Qt.AlignmentFlag.AlignLeft)
-            if failed:
-                avg_it = _item("ERR", DIM, _mono(11), right)
-                mn_it = _item("ERR", DIM, _mono(11), right)
-                mx_it = _item("ERR", DIM, _mono(11), right)
-                std_it = _item("ERR", DIM, _mono(11), right)
-            else:
-                avg_it = _item(
-                    f"{avg:.1f}", ping_color(avg), _mono(11, QFont.Weight.DemiBold), right
-                )
-                mn_it = _item(f"{mn:.1f}", DIM, _mono(11), right)
-                mx_it = _item(f"{mx:.1f}", DIM, _mono(11), right)
-                std_it = _item(
-                    f"{std:.1f}", OK if std > 10 else DIM, _mono(11), right
-                )
-            cells = [rank_col, server, avg_it, mn_it, mx_it, std_it]
-            if rank:
-                bg = QColor(ACCENT_10)
-                for c in cells:
-                    c.setBackground(bg)
-            for col, cell in enumerate(cells):
-                table.setItem(row_i, col, cell)
         self._table = table
         return table
 
@@ -281,12 +257,203 @@ class MainWindow(QMainWindow):
         )
         row.addWidget(legend)
         row.addStretch(1)
-        right = QLabel(
-            f"{len(_ROWS)} servers · {DEFAULT_TRIES} tries/server",
-            objectName="footerRight",
-        )
-        row.addWidget(right)
+        self._footer_right = QLabel("Ready.", objectName="footerRight")
+        row.addWidget(self._footer_right)
         return self._wrap(row)
+
+    # -- scan flow -------------------------------------------------------------
+
+    def _selected_region(self) -> str | None:
+        button = self._chip_group.checkedButton()
+        if button is None:
+            return None
+        return button.property("region")
+
+    def _start_scan(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            return
+        self._tries = self._tries_slider.value()
+
+        self._set_busy(True)
+        self._error.hide()
+        self._top5.hide()
+        self._table.setRowCount(0)
+        self._footer_right.setText("Fetching server list…")
+
+        self._worker = ScanWorker(self._selected_region(), self._tries, parent=self)
+        self._worker.resolved.connect(self._on_resolved)
+        self._worker.server_started.connect(self._on_server_started)
+        self._worker.server_done.connect(self._on_server_done)
+        self._worker.scan_done.connect(self._on_scan_done)
+        self._worker.fetch_failed.connect(self._on_scan_aborted)
+        self._worker.scan_error.connect(self._on_scan_aborted)
+        self._worker.start()
+
+    def _set_busy(self, busy: bool) -> None:
+        self._start_btn.setEnabled(not busy)
+        self._start_btn.setText("SCANNING…" if busy else "START SCAN")
+        for button in self._chip_group.buttons():
+            button.setEnabled(not busy)
+        self._tries_slider.setEnabled(not busy)
+
+    def _on_resolved(self, servers: list[GameServer], unknown_count: int) -> None:
+        self._servers = list(servers)
+        self._results = [None] * len(servers)
+
+        for button in self._chip_group.buttons():
+            if button.property("region") == UNSORTED:
+                button.setVisible(unknown_count > 0)
+
+        self._table.setRowCount(len(servers))
+        for row_index in range(len(servers)):
+            self._fill_pending_row(row_index)
+        self._footer_right.setText(
+            f"{len(servers)} servers · {self._tries} tries/server"
+        )
+
+    def _on_server_started(self, index: int) -> None:
+        self._fill_pinging_row(index)
+
+    def _on_server_done(self, index: int, pings: list[float | None]) -> None:
+        result = collect(self._servers[index], pings)
+        self._results[index] = result
+        self._fill_result_row(index, result, None)
+
+    def _on_scan_done(self, ping_lists: list[list[float | None]], tries: int) -> None:
+        results = [
+            collect(server, pings)
+            for server, pings in zip(self._servers, ping_lists, strict=True)
+        ]
+        self._results = results
+
+        ranked = sorted(
+            (r for r in results if not r.skipped), key=lambda r: r.stats.average
+        )
+        ranks = {result: place for place, result in enumerate(ranked[:_TOP_N], 1)}
+
+        self._table.setRowCount(len(results))
+        for row_index, result in enumerate(results):
+            self._fill_result_row(row_index, result, ranks.get(result))
+
+        self._fill_top5(ranked)
+        if ranked:
+            self._top5.show()
+        mode = current_mode()
+        mode_note = f" · {mode}" if mode else ""
+        self._footer_right.setText(
+            f"{len(results)} servers · {tries} tries/server{mode_note}"
+        )
+        self._set_busy(False)
+
+    def _on_scan_aborted(self, message: str) -> None:
+        self._error.setText(message)
+        self._error.show()
+        self._footer_right.setText("Ready.")
+        self._set_busy(False)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            worker.stop()
+            worker.wait(20000)
+        super().closeEvent(event)
+
+    # -- row rendering -----------------------------------------------------------
+
+    def _fill_pending_row(self, row_index: int) -> None:
+        server = self._servers[row_index]
+        cells = [
+            _item("", TEXT, _mono(10), Qt.AlignmentFlag.AlignCenter),
+            _item(f"{server.name} · {server.label}", TEXT, _mono(11), Qt.AlignmentFlag.AlignLeft),
+            _item("—", DIM, _mono(11), Qt.AlignmentFlag.AlignRight),
+            _item("—", DIM, _mono(11), Qt.AlignmentFlag.AlignRight),
+            _item("—", DIM, _mono(11), Qt.AlignmentFlag.AlignRight),
+            _item("—", DIM, _mono(11), Qt.AlignmentFlag.AlignRight),
+        ]
+        for col, cell in enumerate(cells):
+            self._table.setItem(row_index, col, cell)
+
+    def _fill_pinging_row(self, row_index: int) -> None:
+        for col in (2, 3, 4, 5):
+            self._table.setItem(
+                row_index,
+                col,
+                _item("…", DIM, _mono(11), Qt.AlignmentFlag.AlignRight),
+            )
+
+    def _fill_result_row(
+        self, row_index: int, result: ServerResult, rank: int | None
+    ) -> None:
+        server = result.server
+        rank_col = _item(
+            f"#{rank}" if rank else "",
+            ACCENT,
+            _mono(10, QFont.Weight.DemiBold),
+            Qt.AlignmentFlag.AlignCenter,
+        )
+        server_text = f"{server.name} · {server.label}"
+        if result.lost and result.stats is not None:
+            server_text += f" ({result.lost}/{len(result.pings)} lost)"
+        server_it = _item(server_text, TEXT, _mono(11), Qt.AlignmentFlag.AlignLeft)
+
+        if result.stats is None:
+            value_cells = [
+                _item("ERR", DIM, _mono(11), Qt.AlignmentFlag.AlignRight)
+                for _ in range(4)
+            ]
+        else:
+            stats = result.stats
+            value_cells = [
+                _item(
+                    f"{stats.average:.1f}",
+                    ping_color(stats.average),
+                    _mono(11, QFont.Weight.DemiBold),
+                    Qt.AlignmentFlag.AlignRight,
+                ),
+                _item(f"{stats.minimum:.1f}", DIM, _mono(11), Qt.AlignmentFlag.AlignRight),
+                _item(f"{stats.maximum:.1f}", DIM, _mono(11), Qt.AlignmentFlag.AlignRight),
+                _item(
+                    f"{stats.stddev:.1f}",
+                    OK if stats.stddev > _STDDEV_WARN else DIM,
+                    _mono(11),
+                    Qt.AlignmentFlag.AlignRight,
+                ),
+            ]
+
+        cells = [rank_col, server_it, *value_cells]
+        if rank:
+            bg = QColor(ACCENT_10)
+            for cell in cells:
+                cell.setBackground(bg)
+        for col, cell in enumerate(cells):
+            self._table.setItem(row_index, col, cell)
+
+    # -- top 5 filling -----------------------------------------------------------
+
+    def _fill_top5(self, ranked: list[ServerResult]) -> None:
+        rows_widget = QWidget()
+        lay = QVBoxLayout(rows_widget)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(5)
+        for place, result in enumerate(ranked[:_TOP_N], 1):
+            lay.addLayout(self._top5_row(result, place))
+
+        old = self._top5_rows
+        if old is not None:
+            self._top5_lay.replaceWidget(old, rows_widget)
+            old.deleteLater()
+        else:
+            self._top5_lay.addWidget(rows_widget)
+        self._top5_rows = rows_widget
+
+    # -- misc ----------------------------------------------------------------------
+
+    @staticmethod
+    def _app_version() -> str:
+        try:
+            return package_version("mxl-sigma-ultt")
+        except PackageNotFoundError:
+            return "dev"
 
     @staticmethod
     def _wrap(layout: QHBoxLayout) -> QWidget:

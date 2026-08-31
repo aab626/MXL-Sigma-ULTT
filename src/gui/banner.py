@@ -20,6 +20,12 @@ class BannerWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setFixedHeight(_HEIGHT)
+        self._version: str | None = None
+
+    def set_version(self, version: str | None) -> None:
+        """Show the app version in the subtitle (None hides it)."""
+        self._version = version
+        self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt naming)
         p = QPainter(self)
@@ -60,7 +66,8 @@ class BannerWidget(QWidget):
         sub.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.4)
         p.setFont(sub)
         p.setPen(QColor(DIM))
-        p.drawText(QRectF(0, 56, w, 14), Qt.AlignmentFlag.AlignHCenter, _SUBTITLE)
+        subtitle = _SUBTITLE if self._version is None else f"{_SUBTITLE} · v{self._version}"
+        p.drawText(QRectF(0, 56, w, 14), Qt.AlignmentFlag.AlignHCenter, subtitle)
 
         p.setPen(Qt.PenStyle.NoPen)
         p.fillRect(0, h - 1, w, 1, QColor(BORDER))

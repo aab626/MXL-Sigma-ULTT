@@ -10,6 +10,7 @@ Failed attempts are reported as ``None`` so callers keep the old tool's
 skip semantics: failures never enter min/max/avg/stddev.
 """
 
+import os
 import platform
 import re
 import subprocess
@@ -29,6 +30,9 @@ MODE_SYSTEM_PING = "system-ping"
 DEFAULT_TIMEOUT = 2.0
 DEFAULT_PAYLOAD_SIZE = 32
 DEFAULT_CONCURRENCY = 6
+
+CONCURRENCY_ENV = "MXL_PING_CONCURRENCY"
+MAX_CONCURRENCY = 16
 
 _LOOPBACK = "127.0.0.1"
 _PROBE_TIMEOUT = 1.0
@@ -108,6 +112,22 @@ def _detect_mode() -> str:
     )
 
 
+def resolve_concurrency() -> int:
+    """The parallel-ping concurrency from ``MXL_PING_CONCURRENCY``.
+
+    Shared by the CLI and the GUI. Unset or invalid values fall back to
+    ``DEFAULT_CONCURRENCY``; anything above ``MAX_CONCURRENCY`` is clamped.
+    """
+    raw = os.environ.get(CONCURRENCY_ENV, "")
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return DEFAULT_CONCURRENCY
+    if parsed < 1:
+        return DEFAULT_CONCURRENCY
+    return min(parsed, MAX_CONCURRENCY)
+
+
 def ping_server(
     server: GameServer,
     tries: int,
@@ -150,6 +170,7 @@ def ping_servers(
     concurrency: int = DEFAULT_CONCURRENCY,
     timeout: float = DEFAULT_TIMEOUT,
     payload_size: int = DEFAULT_PAYLOAD_SIZE,
+    stop: threading.Event | None = None,
     on_server_start: Callable[[GameServer], None] | None = None,
     on_server_done: Callable[[GameServer, list[float | None]], None] | None = None,
 ) -> list[list[float | None]]:
@@ -161,6 +182,12 @@ def ping_servers(
     without garbling lines. ``on_server_done`` receives the server and its
     ping list. A worker that fails unexpectedly is treated as a server
     that did not answer (all attempts None) rather than crashing the run.
+
+    ``stop`` lets a driver cancel the run: servers that have not started
+    yet are reported as all-None as soon as the event is set (servers
+    already in flight finish their current attempts). Done callbacks fire
+    for those skipped servers too, so callers always get a complete
+    result set.
     """
     if tries < 1:
         raise ValueError("tries must be at least 1")
@@ -173,15 +200,18 @@ def ping_servers(
     lock = threading.Lock()
 
     def _run(index: int, server: GameServer) -> None:
-        with lock:
-            if on_server_start is not None:
-                on_server_start(server)
-        try:
-            pings = ping_server(
-                server, tries, timeout=timeout, payload_size=payload_size
-            )
-        except Exception:
+        if stop is not None and stop.is_set():
             pings = [None] * tries
+        else:
+            with lock:
+                if on_server_start is not None:
+                    on_server_start(server)
+            try:
+                pings = ping_server(
+                    server, tries, timeout=timeout, payload_size=payload_size
+                )
+            except Exception:
+                pings = [None] * tries
         results[index] = pings
         with lock:
             if on_server_done is not None:
