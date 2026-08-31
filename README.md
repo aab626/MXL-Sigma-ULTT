@@ -1,13 +1,16 @@
 # MXL Sigma (Unofficial) Lag Test Tool
 
 A small multi-platform app I made for the Median XL Sigma community. More info here: [forum thread](https://forum.median-xl.com/viewtopic.php?f=4&t=24270).
+
 Pings every GS and shows the latency to each one, so you can pick the least laggy to play on.
 
 You can find the old version on the [releases page: v1.1](https://github.com/aab626/MXL-Sigma-ULTT/releases/tag/1.1).
 
 ## Downloads
 
-Grab the latest binary from the [releases page](https://github.com/drizak/MXL-Sigma-ULTT/releases). Each release ships one build per platform: `windows`, `linux`, `macos`. Choose wisely!
+Grab the latest binary from the [releases page](https://github.com/drizak/MXL-Sigma-ULTT/releases). Each release ships one build per platform: `windows`, `linux`, `macos`.
+
+> Choose wisely!
 
 Since the binaries are not code-signed, your OS may complain the first time you run one:
 - **macOS**: Gatekeeper will refuse to open an unsigned binary. To fix it: run `xattr -d com.apple.quarantine <path/to/binary>`, `chmod +x` may be needed.
@@ -22,6 +25,7 @@ Just open the app and:
 3. **Start Scan**: Just press the big button 🚀
 
 Each server reports the `min`, `max`, `avg` (average) and `StdDev` (standard deviation) of all measures within a GS. A good server ideally has low `min` latency, and a close to 0 or 1 `StdDev`.
+
 With tries set to 1 the `StdDev` cannot be computed, use that only for a quick reachability test.
 
 ### Pinging methods
