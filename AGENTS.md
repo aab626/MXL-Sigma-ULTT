@@ -19,9 +19,9 @@ src/gui/             PySide6 frontend (the only binary that ships)
   window.py          main window, table, chips, ScanWorker wiring
   worker.py          QThread running one scan (fetch → filter → ping)
   theme.py           colors + stylesheet (ACCENT_10/20 pre-blended hex)
-  banner.py          banner painted in paintEvent, plus hell-bovine-wifi.gif animation
+  banner.py          banner painted in paintEvent: banner.png background + hell-bovine-wifi.gif animation
   __main__.py        GUI entry; hidden --smoke flag for the build contract
-  assets/fonts/      DM Sans + JetBrains Mono TTFs; ../hell-bovine-wifi.gif banner gif
+  assets/fonts/      DM Sans + JetBrains Mono TTFs; ../banner.png bg, ../hell-bovine-wifi.gif banner gif
 tests/               pytest, zero network, RFC 5737 sanitized IPs only
 scripts/build.py     bakes URL + PyInstaller build + smoke test
 .github/workflows/release.yml   v* tags → 3-OS build matrix → release
@@ -55,7 +55,7 @@ scripts/build.py     bakes URL + PyInstaller build + smoke test
 - Failed ping attempts are recorded as `None` and excluded from stats; a server is ERR only when every attempt failed, partial loss shows as "(n/m lost)". Stddev uses `statistics.pstdev` (true mean) — a deliberate break from the old tool's rounded-average quirk.
 - `MXL_PING_CONCURRENCY` env var controls parallel pinging via `core.pinger.resolve_concurrency()`: default 6, clamped to 16, `1` reproduces the old sequential behavior. One knob for both frontends.
 - `theme.py` pre-blends the orange accent at 10%/20% into `ACCENT_10`/`ACCENT_20` hex constants (Qt rgba() backgrounds don't blend reliably across platforms). Change the accent → re-blend those two by hand.
-- Bundled assets: the fonts (DM Sans, JetBrains Mono variable TTFs) and the banner gif (`hell-bovine-wifi.gif`); PyInstaller packs them via `--add-data` and loaders look in `sys._MEIPASS` when frozen. A missing font or gif fails silently, so the smoke test can't catch it.
+- Bundled assets: the fonts (DM Sans, JetBrains Mono variable TTFs), the banner background (`banner.png`, 6.4:1 dark image) and the banner gif (`hell-bovine-wifi.gif`); PyInstaller packs them via `--add-data` and loaders look in `sys._MEIPASS` when frozen. A missing asset fails silently (banner falls back to a painted gradient), so the smoke test can't catch it.
 
 ## Release
 
