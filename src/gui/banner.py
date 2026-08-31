@@ -7,9 +7,6 @@ clickable forum link. Right side: hell-bovine-wifi.gif, a looping animation
 pinned to the far right (sized to fit the fixed banner height).
 """
 
-import sys
-from pathlib import Path
-
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import (
     QColor,
@@ -25,6 +22,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QLabel, QWidget
 
+from gui.resources import asset_path
 from gui.theme import ACCENT, BORDER, BRIGHT, FONT_DISPLAY, FONT_MONO, TEXT
 
 _HEIGHT = 90
@@ -41,14 +39,6 @@ _GIF_CARD_SIDE = 70
 _GIF_CARD_RADIUS = 6.0
 
 
-def _asset_path(name: str) -> Path | None:
-    """Locate a bundled asset; None when missing (silent fallback, like fonts)."""
-    bundled = getattr(sys, "_MEIPASS", None)
-    base = Path(bundled) / "gui" / "assets" if bundled else Path(__file__).parent / "assets"
-    path = base / name
-    return path if path.is_file() else None
-
-
 class BannerWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
@@ -57,10 +47,10 @@ class BannerWidget(QWidget):
         self._link_rect = QRectF()
         self._gif_label: QLabel | None = None
         self._gif_card_rect = QRectF()
-        bg_path = _asset_path(_BANNER_IMG)
+        bg_path = asset_path(_BANNER_IMG)
         self._bg = QImage(str(bg_path)) if bg_path else QImage()
 
-        path = _asset_path(_GIF_NAME)
+        path = asset_path(_GIF_NAME)
         if path is not None:
             intrinsic = QImageReader(str(path)).size()
             if intrinsic.isValid():

@@ -8,7 +8,7 @@ errors surface in an inline banner above the table.
 """
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -28,6 +28,7 @@ from core.gslist import GameServer, Region
 from core.output import ServerResult, collect
 from core.pinger import current_mode
 from gui.banner import BannerWidget
+from gui.resources import asset_path
 from gui.theme import (
     ACCENT,
     ACCENT_10,
@@ -113,6 +114,9 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Median XL - Lag Test Tool")
+        icon_path = asset_path("icon.png")
+        if icon_path is not None:
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         self._worker: ScanWorker | None = None
         self._servers: list[GameServer] = []
