@@ -117,6 +117,14 @@ Releasing, end to end, for the maintainer:
 3. GitHub Actions builds the three binaries and attaches them to the release; check the run is green.
 4. Spot-check each binary on its own OS. First runs will trip SmartScreen (Windows) or Gatekeeper (macOS); the README tells users what to click through.
 
+## Hotfix notes: v2.0.1, TLS on macOS
+
+The v2.0.0 macOS build died at the first fetch with an SSL certificate verification failure. The cause is a gap specific to frozen macOS builds: OpenSSL inside a PyInstaller bundle has no certificate store to consult. Windows and Linux binaries never hit this because Python falls back to the OS certificate store on those platforms, and macOS has no equivalent fallback for python-build-standalone interpreters.
+
+The fix is to stop relying on the OS and ship a certificate store with the app. certifi, already a transitive dependency of most Python stacks, provides one; `fetch_gs_list` now builds its TLS context from `certifi.where()` explicitly, and PyInstaller's certifi hook packs the bundle into the binary. Verified by rebuilding and fetching the real list with no environment variables set, so only the bundled store could have been used.
+
+`_ssl_context` exists for this and only this. If certifi ever leaves the dependency list, the fetch will break on macOS first.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.

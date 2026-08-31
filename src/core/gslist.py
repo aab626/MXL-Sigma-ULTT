@@ -1,8 +1,11 @@
 import re
+import ssl
 import urllib.request
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
+
+import certifi
 
 _CC_PATTERN = re.compile(r"\[([a-zA-Z]{2})\]")
 
@@ -99,11 +102,18 @@ class GameServer:
     ip: str
 
 
+def _ssl_context() -> ssl.SSLContext:
+    # Frozen macOS builds have no system CA store to fall back on; certifi's
+    # bundle guarantees TLS verification works on every platform. PyInstaller
+    # picks up the cacert.pem data file through its certifi hook.
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def fetch_gs_list(url: str, timeout: float = 10.0) -> str:
     request = urllib.request.Request(
         url, headers={"User-Agent": "MXL-Sigma-ULTT/2.0"}
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urllib.request.urlopen(request, timeout=timeout, context=_ssl_context()) as response:
         return response.read().decode("utf-8")
 
 
