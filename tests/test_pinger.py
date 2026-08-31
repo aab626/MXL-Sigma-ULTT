@@ -322,3 +322,55 @@ def test_ping_servers_validates_arguments(monkeypatch):
         pinger.ping_servers(_servers(1), 0)
     with pytest.raises(ValueError):
         pinger.ping_servers(_servers(1), 4, concurrency=0)
+
+
+def test_ping_servers_stop_before_start(monkeypatch):
+    pinged: list[str] = []
+
+    def fake_ping(server, tries, timeout=2.0, payload_size=32):
+        pinged.append(server.name)
+        return [1.0] * tries
+
+    monkeypatch.setattr(pinger, "ping_server", fake_ping)
+    stop = threading.Event()
+    stop.set()
+    results = pinger.ping_servers(_servers(3), 2, concurrency=2, stop=stop)
+    assert pinged == []
+    assert results == [[None, None]] * 3
+
+
+def test_ping_servers_stop_midway(monkeypatch):
+    pinged: list[str] = []
+
+    def fake_ping(server, tries, timeout=2.0, payload_size=32):
+        pinged.append(server.name)
+        return [1.0] * tries
+
+    monkeypatch.setattr(pinger, "ping_server", fake_ping)
+    stop = threading.Event()
+    servers = _servers(3)
+    results = pinger.ping_servers(
+        servers,
+        2,
+        concurrency=1,
+        stop=stop,
+        on_server_done=lambda server, _pings: stop.set(),
+    )
+    assert pinged == [servers[0].name]
+    assert results[0] == [1.0, 1.0]
+    assert results[1] == [None, None]
+    assert results[2] == [None, None]
+
+
+def test_resolve_concurrency(monkeypatch):
+    monkeypatch.delenv(pinger.CONCURRENCY_ENV, raising=False)
+    assert pinger.resolve_concurrency() == pinger.DEFAULT_CONCURRENCY
+    monkeypatch.setenv(pinger.CONCURRENCY_ENV, "3")
+    assert pinger.resolve_concurrency() == 3
+    monkeypatch.setenv(pinger.CONCURRENCY_ENV, "1")
+    assert pinger.resolve_concurrency() == 1
+    monkeypatch.setenv(pinger.CONCURRENCY_ENV, "999")
+    assert pinger.resolve_concurrency() == pinger.MAX_CONCURRENCY
+    for bad in ("0", "-2", "abc", ""):
+        monkeypatch.setenv(pinger.CONCURRENCY_ENV, bad)
+        assert pinger.resolve_concurrency() == pinger.DEFAULT_CONCURRENCY

@@ -1,6 +1,6 @@
 [project]
 name = "mxl-sigma-ultt"
-version = "2.1.0"
+version = "2.2.0"
 description = "Server latency tester for Median XL Sigma"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,7 +16,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/core"]
+packages = ["src/core", "src/gui"]
 
 [dependency-groups]
 dev = [
@@ -24,6 +24,12 @@ dev = [
     "ruff>=0.6",
     "pyinstaller>=6.10",
 ]
+gui = [
+    "PySide6-Essentials>=6.8",
+]
+
+[tool.uv]
+default-groups = ["dev", "gui"]
 
 [tool.ruff]
 line-length = 100

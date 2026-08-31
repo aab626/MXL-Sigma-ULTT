@@ -5,7 +5,6 @@ pings, report on screen. The deliberate differences from the legacy
 script are listed in docs/DEVELOPMENT.md.
 """
 
-import os
 import re
 import urllib.error
 from importlib.metadata import PackageNotFoundError, version
@@ -21,16 +20,14 @@ from core.gslist import (
 )
 from core.output import ServerResult, collect, render_report
 from core.pinger import (
-    DEFAULT_CONCURRENCY,
     PingError,
     ping_servers,
+    resolve_concurrency,
     resolve_mode,
 )
 
 _BANNER = "MEDIAN XL SIGMA TSW Unofficial Lag Test Tool by *Drizak"
 _TOKEN_SPLIT = re.compile(r"[\s,]+")
-_CONCURRENCY_ENV = "MXL_PING_CONCURRENCY"
-_MAX_CONCURRENCY = 16
 
 
 def main() -> int:
@@ -106,11 +103,7 @@ def _print_server_start(server: GameServer) -> None:
 
 
 def _concurrency_from_env() -> int:
-    raw = os.environ.get(_CONCURRENCY_ENV, "")
-    parsed = _parse_concurrency(raw)
-    if parsed is None or parsed < 1:
-        return DEFAULT_CONCURRENCY
-    return min(parsed, _MAX_CONCURRENCY)
+    return resolve_concurrency()
 
 
 def _parse_concurrency(raw: str) -> int | None:
