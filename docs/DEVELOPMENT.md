@@ -168,6 +168,16 @@ Things that are easy to lose and are written down here:
 - Tests patch the names inside `gui.worker` (fetch, parse, mode, ping), so nothing touches the network. Window flow tests patch `ScanWorker.start` to call `run()` inline, which keeps signal delivery synchronous and avoids event-loop timing. The close test parks the fake pinger on an event and asserts the window's close path breaks it loose.
 - Verified headless, twice: against the sanitized fixture, where every address is unroutable and the whole table must go ERR, and against the real list (54 servers, 4 tries, about 11 seconds in the sandbox). A screenshot made one average look green on red cells, so cell colors were read back programmatically instead of trusted by eye.
 
+## Phase C notes: shipping the GUI
+
+The build script now packages the Qt app. Three things changed shape and are worth writing down:
+
+- The smoke contract had to change. A windowed binary opens no console on Windows, so the old trick of closing stdin and reading the banner is gone. The GUI entry takes a hidden `--smoke` flag that builds the real window on the offscreen Qt platform, tears it down and exits 0. The exit code is the whole contract; there is nothing to read. A test runs that same path from source, so every CI OS exercises it before the binary is even packaged.
+- Fonts are the only data files in the GUI, and PyInstaller does not pick up data files by itself. The build passes the assets directory through `--add-data`, and the font loader looks inside the bundle's temp path when frozen. If that ever breaks, the app still opens, just with system fonts, and nothing fails loudly: the smoke test cannot catch a missing font. The spec file (in the ignored build directory) is where to confirm the assets actually got in.
+- Releases are GUI only. The terminal UI still runs from source (`python -m core`) but no binary is built for it. Artifact names on the release page are unchanged.
+
+Also: the Linux CI runner needed Qt runtime libraries installed (libgl, libegl, xkbcommon, fontconfig, dbus); Qt wants them even for headless offscreen rendering. On macOS, onefile plus windowed produces a plain executable rather than an .app bundle, which is what the release step expects. Version went to 2.2.0.
+
 ## The plan and where it stands
 
 Rewrite phases, in order. Each appends to this file when it finishes.
@@ -179,4 +189,4 @@ Rewrite phases, in order. Each appends to this file when it finishes.
 4. Build script and CI: release binaries for Windows, Linux, macOS via GitHub Actions. **done**
 5. Ship: README rewrite, delete `MXLLagtest.py`, tag v2.0.0. **done**
 6. Post-release: parallel pinging with configurable concurrency. **done**
-7. GUI (PySide6) from the Figma design: A shell and theme, B real scanning, C build, CI and release. **A and B done**
+7. GUI (PySide6) from the Figma design: A shell and theme, B real scanning, C build, CI and release. **done**

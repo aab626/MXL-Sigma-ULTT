@@ -248,3 +248,23 @@ def test_window_close_cancels_scan(app, monkeypatch):
     assert w._worker.isRunning()
     w.close()  # must stop the worker and wait for it, not hang
     assert not w._worker.isRunning()
+
+
+def test_smoke_entry():
+    """The release build's smoke contract: --smoke exits 0 offscreen."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+    result = subprocess.run(
+        [sys.executable, "-m", "gui", "--smoke"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=root,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
