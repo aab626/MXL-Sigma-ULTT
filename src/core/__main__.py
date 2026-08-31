@@ -1,10 +1,11 @@
 """Interactive command-line driver.
 
 Flow matches the old tool: banner, tries prompt, fetch, filter prompt,
-sequential pings, report on screen. The deliberate differences from the
-legacy script are listed in docs/DEVELOPMENT.md.
+pings, report on screen. The deliberate differences from the legacy
+script are listed in docs/DEVELOPMENT.md.
 """
 
+import os
 import re
 import urllib.error
 from importlib.metadata import PackageNotFoundError, version
@@ -18,11 +19,18 @@ from core.gslist import (
     invalid_tokens,
     parse_gs_list,
 )
-from core.output import collect, render_report
-from core.pinger import PingError, ping_server, resolve_mode
+from core.output import ServerResult, collect, render_report
+from core.pinger import (
+    DEFAULT_CONCURRENCY,
+    PingError,
+    ping_servers,
+    resolve_mode,
+)
 
 _BANNER = "MEDIAN XL SIGMA TSW Unofficial Lag Test Tool by *Drizak"
 _TOKEN_SPLIT = re.compile(r"[\s,]+")
+_CONCURRENCY_ENV = "MXL_PING_CONCURRENCY"
+_MAX_CONCURRENCY = 16
 
 
 def main() -> int:
@@ -66,12 +74,21 @@ def main() -> int:
         print(error)
         return 1
     print(f"Ping mode: {mode}")
+
+    concurrency = _concurrency_from_env()
+    print(f"Pinging {len(selected)} servers, {concurrency} at a time.")
     print()
 
-    results = []
-    for server in selected:
-        print(f"Pinging: {server.name:<7}{server.label}")
-        results.append(collect(server, ping_server(server, tries)))
+    ping_lists = ping_servers(
+        selected,
+        tries,
+        concurrency=concurrency,
+        on_server_start=_print_server_start,
+    )
+    results: list[ServerResult] = [
+        collect(server, pings)
+        for server, pings in zip(selected, ping_lists, strict=True)
+    ]
 
     print()
     print(render_report(results, tries))
@@ -82,6 +99,25 @@ def main() -> int:
     except EOFError:
         pass
     return 0
+
+
+def _print_server_start(server: GameServer) -> None:
+    print(f"Pinging: {server.name:<7}{server.label}")
+
+
+def _concurrency_from_env() -> int:
+    raw = os.environ.get(_CONCURRENCY_ENV, "")
+    parsed = _parse_concurrency(raw)
+    if parsed is None or parsed < 1:
+        return DEFAULT_CONCURRENCY
+    return min(parsed, _MAX_CONCURRENCY)
+
+
+def _parse_concurrency(raw: str) -> int | None:
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _prompt_tries() -> int:

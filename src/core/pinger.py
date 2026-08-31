@@ -13,7 +13,9 @@ skip semantics: failures never enter min/max/avg/stddev.
 import platform
 import re
 import subprocess
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 
 import icmplib
 from icmplib.exceptions import ICMPLibError, SocketPermissionError
@@ -26,6 +28,7 @@ MODE_SYSTEM_PING = "system-ping"
 
 DEFAULT_TIMEOUT = 2.0
 DEFAULT_PAYLOAD_SIZE = 32
+DEFAULT_CONCURRENCY = 6
 
 _LOOPBACK = "127.0.0.1"
 _PROBE_TIMEOUT = 1.0
@@ -138,6 +141,58 @@ def ping_server(
         if on_attempt is not None:
             on_attempt(attempt, rtt)
     return results
+
+
+def ping_servers(
+    servers: Sequence[GameServer],
+    tries: int,
+    *,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    timeout: float = DEFAULT_TIMEOUT,
+    payload_size: int = DEFAULT_PAYLOAD_SIZE,
+    on_server_start: Callable[[GameServer], None] | None = None,
+    on_server_done: Callable[[GameServer, list[float | None]], None] | None = None,
+) -> list[list[float | None]]:
+    """Ping several servers at once and return one result list per server.
+
+    The returned lists are in the same order as ``servers``, no matter in
+    which order the servers finish. Callbacks are invoked from worker
+    threads but serialized through a lock, so drivers can print from them
+    without garbling lines. ``on_server_done`` receives the server and its
+    ping list. A worker that fails unexpectedly is treated as a server
+    that did not answer (all attempts None) rather than crashing the run.
+    """
+    if tries < 1:
+        raise ValueError("tries must be at least 1")
+    if concurrency < 1:
+        raise ValueError("concurrency must be at least 1")
+    if not servers:
+        return []
+
+    results: list[list[float | None] | None] = [None] * len(servers)
+    lock = threading.Lock()
+
+    def _run(index: int, server: GameServer) -> None:
+        with lock:
+            if on_server_start is not None:
+                on_server_start(server)
+        try:
+            pings = ping_server(
+                server, tries, timeout=timeout, payload_size=payload_size
+            )
+        except Exception:
+            pings = [None] * tries
+        results[index] = pings
+        with lock:
+            if on_server_done is not None:
+                on_server_done(server, pings)
+
+    workers = min(concurrency, len(servers))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_run, index, server) for index, server in enumerate(servers)]
+        for future in futures:
+            future.result()
+    return [pings if pings is not None else [None] * tries for pings in results]
 
 
 def _icmp_once(
